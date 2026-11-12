@@ -1,321 +1,207 @@
-
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Page 1 — AR Animation</title>
 
-  <meta
-    name="viewport"
-    content="width=device-width, initial-scale=1.0,
-             maximum-scale=1.0, viewport-fit=cover"
-  >
-
-  <title>My AR Animation</title>
-
-  <!-- A-Frame: displays your animation in AR -->
+  <!-- A-Frame and MindAR: keep both libraries available online. -->
   <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
-
-  <!-- MindAR: recognizes the printed artwork -->
   <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
 
   <style>
-
-    * {
-      box-sizing: border-box;
-    }
-
-    body {
-      margin: 0;
-      padding: 0;
-      overflow: hidden;
-      font-family: Arial, sans-serif;
-      background: #000;
-    }
-
-    /* Instructions shown at the top */
-    #instructions {
-      position: fixed;
-      top: 15px;
-      left: 50%;
-      transform: translateX(-50%);
-      width: 90%;
-      max-width: 420px;
-      padding: 14px;
-      background: rgba(0, 0, 0, 0.75);
-      color: white;
-      text-align: center;
-      font-size: 15px;
-      border-radius: 12px;
-      z-index: 100;
+    * { box-sizing: border-box; }
+    html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: #000; font-family: Arial, sans-serif; }
+    #status {
+      position: fixed; z-index: 20; top: max(12px, env(safe-area-inset-top));
+      left: 50%; transform: translateX(-50%); width: min(92%, 450px);
+      padding: 12px 14px; border-radius: 12px; text-align: center;
+      color: #fff; background: rgba(0, 0, 0, .82); font-size: 15px;
       pointer-events: none;
     }
-
-    /* Play animation button */
     #playButton {
-      display: none;
-      position: fixed;
-      bottom: 105px;
-      left: 50%;
-      transform: translateX(-50%);
-      padding: 15px 30px;
-      border: none;
-      border-radius: 30px;
-      background: #ffffff;
-      color: #000000;
-      font-size: 17px;
-      font-weight: bold;
-      cursor: pointer;
-      z-index: 200;
-      white-space: nowrap;
+      display: none; position: fixed; z-index: 30;
+      bottom: calc(105px + env(safe-area-inset-bottom)); left: 50%;
+      transform: translateX(-50%); border: none; border-radius: 28px;
+      background: #fff; color: #111; padding: 15px 25px;
+      font-size: 17px; font-weight: bold; white-space: nowrap;
     }
-
-    #playButton:disabled {
-      opacity: 0.6;
-    }
-
-    /* Alternative video playback button */
-    #fallbackButton {
-      position: fixed;
-      bottom: 30px;
-      left: 50%;
-      transform: translateX(-50%);
-      padding: 13px 22px;
-      background: rgba(0, 0, 0, 0.8);
-      color: #ffffff;
-      text-decoration: none;
-      text-align: center;
-      border: 1px solid white;
-      border-radius: 25px;
+    #fallback {
+      position: fixed; z-index: 30; bottom: calc(26px + env(safe-area-inset-bottom));
+      left: 50%; transform: translateX(-50%); text-decoration: none;
+      color: #fff; background: rgba(0,0,0,.85); border: 1px solid #fff;
+      padding: 13px 20px; border-radius: 25px; white-space: nowrap;
       font-size: 14px;
-      z-index: 200;
-      white-space: nowrap;
     }
-
+    /* Keep the original video element in the page for mobile playback. */
+    #animation {
+      position: fixed; width: 1px; height: 1px; opacity: 0;
+      pointer-events: none; top: 0; left: 0;
+    }
   </style>
 
+  <script>
+    // Displays the finished MP4 on a small canvas texture instead of putting
+    // a 4000px video directly into WebGL. This does NOT change the MP4 file.
+    AFRAME.registerComponent('mobile-video-surface', {
+      init: function () {
+        const self = this;
+        this.video = document.getElementById('animation');
+        this.canvas = document.createElement('canvas');
+        this.canvas.width = 1024;
+        this.canvas.height = 576;
+        this.context = this.canvas.getContext('2d', { alpha: false });
+        this.texture = new AFRAME.THREE.CanvasTexture(this.canvas);
+        this.texture.minFilter = AFRAME.THREE.LinearFilter;
+        this.texture.magFilter = AFRAME.THREE.LinearFilter;
+        this.texture.generateMipmaps = false;
+        this.surfaceMaterial = new AFRAME.THREE.MeshBasicMaterial({
+          map: this.texture,
+          side: AFRAME.THREE.DoubleSide,
+          toneMapped: false
+        });
+        this.active = false;
+        this.hasFrame = false;
+        this.lastFrameTime = -1;
+
+        this.attachMaterial = function () {
+          const mesh = self.el.getObject3D('mesh');
+          if (mesh) mesh.material = self.surfaceMaterial;
+        };
+        this.el.addEventListener('object3dset', this.attachMaterial);
+        this.attachMaterial();
+
+        this.updateVideoSize = function () {
+          const w = self.video.videoWidth;
+          const h = self.video.videoHeight;
+          if (!w || !h) return;
+          const ratio = h / w;
+          self.el.setAttribute('height', ratio);
+          self.canvas.width = 1024;
+          self.canvas.height = Math.max(1, Math.round(1024 * ratio));
+          self.texture.needsUpdate = true;
+        };
+        this.video.addEventListener('loadedmetadata', this.updateVideoSize);
+        if (this.video.readyState >= 1) this.updateVideoSize();
+      },
+      tick: function () {
+        if (!this.active || this.video.paused || this.video.readyState < 2 || !this.context) return;
+        if (this.video.currentTime === this.lastFrameTime) return;
+        try {
+          this.context.drawImage(this.video, 0, 0, this.canvas.width, this.canvas.height);
+          this.texture.needsUpdate = true;
+          this.lastFrameTime = this.video.currentTime;
+          if (!this.hasFrame) {
+            this.hasFrame = true;
+            this.el.setAttribute('visible', true);
+            document.getElementById('status').textContent = 'AR animation is playing!';
+          }
+        } catch (error) {
+          document.getElementById('status').textContent =
+            'The AR video cannot be drawn on this device. Try Watch Without AR.';
+          console.error('Drawing video into AR failed:', error);
+          this.active = false;
+        }
+      },
+      remove: function () {
+        this.el.removeEventListener('object3dset', this.attachMaterial);
+        this.video.removeEventListener('loadedmetadata', this.updateVideoSize);
+        this.surfaceMaterial.dispose();
+        this.texture.dispose();
+      }
+    });
+  </script>
 </head>
-
 <body>
+  <div id="status" role="status" aria-live="polite">Starting AR camera...</div>
+  <button id="playButton" type="button">&#9654; Play Animation</button>
+  <a id="fallback" href="./1st%20-walking.mp4" target="_blank" rel="noopener noreferrer">Watch Without AR</a>
 
-  <!-- Camera instructions -->
-  <div id="instructions">
-    Point your camera at the printed artwork
-  </div>
+  <!-- Correct filename for Page 1. Keep muted for reliable mobile video textures. -->
+  <video id="animation" src="./1st%20-walking.mp4" preload="auto"
+         muted playsinline webkit-playsinline loop></video>
 
-  <!-- Button for starting AR animation -->
-  <button id="playButton" type="button">
-    ▶ Play Animation
-  </button>
-
-  <!-- Fallback for unsupported devices -->
-  <a
-    id="fallbackButton"
-    href="./1st -walking.mp4"
-    target="_blank"
-    rel="noopener noreferrer"
-  >
-    Watch Without AR
-  </a>
-
-  <!-- Main augmented reality scene -->
   <a-scene
-    mindar-image="
-      imageTargetSrc: ./targets.mind;
-      autoStart: true;
-    "
+    mindar-image="imageTargetSrc: ./targets.mind; autoStart: true;"
     embedded
     color-space="sRGB"
-    renderer="
-      colorManagement: true;
-      physicallyCorrectLights: false;
-    "
+    renderer="colorManagement: true; antialias: false;"
     vr-mode-ui="enabled: false"
-    device-orientation-permission-ui="enabled: false"
-  >
+    device-orientation-permission-ui="enabled: false">
 
-    <!-- Load your animation -->
-    <a-assets timeout="30000">
-
-      <video
-        id="animation"
-        src="./1st -walking.mp4"
-        preload="metadata"
-        playsinline
-        webkit-playsinline
-        loop
-      ></video>
-
-    </a-assets>
-
-    <!-- Camera -->
-    <a-camera
-      position="0 0 0"
-      look-controls="enabled: false"
-    ></a-camera>
-
-    <!-- Image recognition target -->
-    <a-entity
-      id="posterTarget"
-      mindar-image-target="targetIndex: 0"
-    >
-
-      <!-- AR animation overlay -->
-      
-<a-plane
-  id="videoPlane"
-  width="1"
-  height="0.56275"
-  position="0 0 0.01"
-  material="color: #00FF00; shader: flat; side: double;"
-></a-plane>
-
-
+    <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
+    <a-entity id="artworkTarget" mindar-image-target="targetIndex: 0">
+      <!-- Height automatically follows the original MP4's aspect ratio. -->
+      <a-plane id="arVideo" mobile-video-surface
+               width="1" height="0.56275"
+               position="0 0 0.01" visible="false"></a-plane>
     </a-entity>
-
   </a-scene>
 
   <script>
-
-    // Get the elements
-    const video = document.querySelector("#animation");
-    const target = document.querySelector("#posterTarget");
-    const videoPlane = document.querySelector("#videoPlane");
-    const playButton = document.querySelector("#playButton");
-    const instructions = document.querySelector("#instructions");
-    const scene = document.querySelector("a-scene");
-
-    // Track whether the artwork is visible
+    const video = document.getElementById('animation');
+    const playButton = document.getElementById('playButton');
+    const statusBox = document.getElementById('status');
+    const target = document.getElementById('artworkTarget');
+    const scene = document.querySelector('a-scene');
+    const arVideo = document.getElementById('arVideo');
     let targetVisible = false;
 
-    // Automatically match the actual video aspect ratio
-    function updateVideoDimensions() {
-
-      if (video.videoWidth > 0 &&
-          video.videoHeight > 0) {
-
-        const aspectRatio =
-          video.videoHeight / video.videoWidth;
-
-        videoPlane.setAttribute(
-          "height",
-          aspectRatio
-        );
-
-        console.log(
-          "Video aspect ratio:",
-          video.videoWidth,
-          "x",
-          video.videoHeight
-        );
-      }
-    }
-
-    // Read the original MP4 dimensions
-    video.addEventListener(
-      "loadedmetadata",
-      updateVideoDimensions
-    );
-
-    // If the metadata loaded earlier
-    if (video.readyState >= 1) {
-      updateVideoDimensions();
-    }
-
-    // When the phone recognizes the printed artwork
-    target.addEventListener("targetFound", () => {
-
+    target.addEventListener('targetFound', function () {
       targetVisible = true;
-
-      instructions.textContent =
-        "Artwork detected! Tap Play Animation.";
-
-      if (video.paused) {
-        playButton.style.display = "block";
-      }
-
+      statusBox.textContent = 'Artwork detected! Tap Play Animation.';
+      playButton.style.display = 'block';
     });
 
-    // When the phone moves away from the artwork
-    target.addEventListener("targetLost", () => {
-
+    target.addEventListener('targetLost', function () {
       targetVisible = false;
-
       video.pause();
-
-      playButton.style.display = "none";
-
-      instructions.textContent =
-        "Point your camera at the printed artwork";
-
+      playButton.style.display = 'none';
+      const surface = arVideo.components['mobile-video-surface'];
+      if (surface) surface.active = false;
+      statusBox.textContent = 'Point your camera at the printed artwork.';
     });
 
-    // Start the animation after a user tap
-     playButton.addEventListener("click", () => {    instructions.textContent =     "Starting animation...";    // Do not seek before starting playback.   // Some mobile browsers have trouble with that.    const playPromise = video.play();    if (playPromise !== undefined) {      playPromise.then(() => {        instructions.textContent =         "Video playing!";        playButton.style.display = "none";      }).catch((error) => {        console.error("Playback failed:", error);        instructions.textContent =         "Playback failed: " + error.name;        playButton.style.display = "block";      });    }  });
-
-      if (!targetVisible) {
+    playButton.addEventListener('click', function () {
+      if (!targetVisible) return;
+      statusBox.textContent = 'Starting video...';
+      video.muted = true;
+      const surface = arVideo.components['mobile-video-surface'];
+      if (!surface) {
+        statusBox.textContent = 'AR surface is not ready. Reload and try again.';
         return;
       }
+      surface.active = true;
+      surface.hasFrame = false;
+      surface.lastFrameTime = -1;
+      arVideo.setAttribute('visible', false);
 
-      playButton.disabled = true;
-
-      try {
-
-        // Play from the beginning when tapped
-        video.currentTime = 0;
-
-        await video.play();
-
-        playButton.style.display = "none";
-
-        instructions.textContent =
-          "Enjoy your AR animation!";
-
-        // If tracking was lost during playback startup
-        if (!targetVisible) {
-          video.pause();
-        }
-
-      } catch (error) {
-
-        console.error(
-          "Video playback error:",
-          error
-        );
-
-        instructions.textContent =
-          "Unable to play. Please try again.";
-
-        if (targetVisible) {
-          playButton.style.display = "block";
-        }
-
-      } finally {
-
-        playButton.disabled = false;
-
+      // Call play() directly from the tap: important for mobile browsers.
+      const playing = video.play();
+      if (playing && typeof playing.then === 'function') {
+        playing.then(function () {
+          if (!targetVisible) {
+            video.pause();
+            surface.active = false;
+            return;
+          }
+          playButton.style.display = 'none';
+          statusBox.textContent = 'Video started. Showing AR frames...';
+          if (surface.hasFrame) statusBox.textContent = 'AR animation is playing!';
+        }).catch(function (error) {
+          surface.active = false;
+          statusBox.textContent = 'Playback failed: ' + error.name + '. Try Watch Without AR.';
+          playButton.style.display = 'block';
+        });
       }
-
     });
 
-    // Helpful message if the video fails to load
-    video.addEventListener("error", () => {
-
-      instructions.textContent =
-        "Video could not load. Check animation.mp4.";
-
+    video.addEventListener('error', function () {
+      statusBox.textContent = 'MP4 could not load. Check the Page 1 filename.';
     });
-
-    // Camera or AR initialization failure
-    scene.addEventListener("arError", () => {
-
-      instructions.textContent =
-        "AR could not start. Check camera permission " +
-        "or use Watch Without AR.";
-
+    scene.addEventListener('arError', function () {
+      statusBox.textContent = 'Could not start camera AR. Try Watch Without AR.';
     });
-
   </script>
-
 </body>
 </html>
