@@ -11,7 +11,7 @@
 
   <style>
     * { box-sizing: border-box; }
-    html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: #000; font-family: Arial, sans-serif; }
+    html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: transparent; font-family: Arial, sans-serif; }
     #status {
       position: fixed; z-index: 20; top: max(12px, env(safe-area-inset-top));
       left: 50%; transform: translateX(-50%); width: min(92%, 450px);
@@ -125,7 +125,7 @@
     mindar-image="imageTargetSrc: ./targets.mind; autoStart: true;"
     embedded
     color-space="sRGB"
-    renderer="colorManagement: true; antialias: false;"
+    renderer="colorManagement: true; alpha: true; antialias: false;"
     vr-mode-ui="enabled: false"
     device-orientation-permission-ui="enabled: false">
 
