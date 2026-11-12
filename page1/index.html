@@ -253,7 +253,7 @@
     });
 
     // Start the animation after a user tap
-    playButton.addEventListener("click", async () => {
+     playButton.addEventListener("click", () => {    instructions.textContent =     "Starting animation...";    // Do not seek before starting playback.   // Some mobile browsers have trouble with that.    const playPromise = video.play();    if (playPromise !== undefined) {      playPromise.then(() => {        instructions.textContent =         "Video playing!";        playButton.style.display = "none";      }).catch((error) => {        console.error("Playback failed:", error);        instructions.textContent =         "Playback failed: " + error.name;        playButton.style.display = "block";      });    }  });
 
       if (!targetVisible) {
         return;
